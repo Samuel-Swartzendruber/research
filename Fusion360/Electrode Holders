@@ -1,0 +1,68 @@
+# ParametricBox_with_fillet.py
+# Paste into Fusion 360 Scripts & Add-Ins and Run
+import adsk.core, adsk.fusion, adsk.cam, traceback
+
+def run(context):
+    ui = None
+    try:
+        # ---------- User parameters (edit these) ----------
+        width = 50.0    # mm
+        depth = 30.0    # mm
+        height = 20.0   # mm
+        wall_thickness = 2.0  # mm (if you modify to make hollow)
+        fillet_radius = 2.5    # mm
+        # -------------------------------------------------
+
+        app = adsk.core.Application.get()
+        ui  = app.userInterface
+        design = adsk.fusion.Design.cast(app.activeProduct)
+        if not design:
+            ui.messageBox('No active Fusion design', 'Error')
+            return
+
+        unitsMgr = design.unitsManager
+        # ensure units consistent (assumes mm values above)
+
+        rootComp = design.rootComponent
+
+        # Create new sketch on XY plane
+        sketches = rootComp.sketches
+        xyPlane = rootComp.xYConstructionPlane
+        sketch = sketches.add(xyPlane)
+
+        # Rectangle centered at origin: use two points
+        pts = adsk.core.ObjectCollection.create()
+        p1 = adsk.core.Point3D.create(-width/2.0, -depth/2.0, 0)
+        p2 = adsk.core.Point3D.create(width/2.0, depth/2.0, 0)
+        lines = sketch.sketchCurves.sketchLines
+        lines.addTwoPointRectangle(p1, p2)
+
+        # Profile and extrusion
+        prof = sketch.profiles.item(0)
+        extrudes = rootComp.features.extrudeFeatures
+        # create new body extrusion
+        extInput = extrudes.createInput(prof, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+        distance = adsk.core.ValueInput.createByReal(height)
+        extInput.setDistanceExtent(False, distance)
+        ext = extrudes.add(extInput)
+        body = ext.bodies.item(0)
+
+        # Apply fillet to all outer vertical edges
+        filletFeats = rootComp.features.filletFeatures
+        filletInput = filletFeats.createInput()
+        edges = adsk.core.ObjectCollection.create()
+        for edge in body.edges:
+            # pick only edges roughly vertical/horizontal at top—simple filter by geometry
+            # This is a permissive selection; adjust as needed.
+            edges.add(edge)
+
+        if edges.count > 0 and fillet_radius > 0:
+            radiusInput = adsk.core.ValueInput.createByReal(fillet_radius)
+            filletInput.addConstantRadiusEdgeSet(edges, radiusInput, False)
+            filletFeats.add(filletInput)
+
+        ui.messageBox('Created box: {}×{}×{} mm with fillet {} mm'.format(width, depth, height, fillet_radius))
+
+    except:
+        if ui:
+            ui.messageBox('Failed:\n{}'.format(traceback.format_exc()))
