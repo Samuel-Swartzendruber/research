@@ -1,0 +1,95 @@
+#%%
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import norm
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import Matern
+
+# ----------------------------
+# Synthetic "true" function
+# ----------------------------
+def true_function(X):
+    x, y = X[:, 0], X[:, 1]
+    return (
+        np.exp(-((x - 1.5)**2 + (y - 1.5)**2)) +
+        0.7 * np.exp(-((x + 1.0)**2 + (y + 1.0)**2) / 0.3)
+    )
+
+# ----------------------------
+# Expected Improvement
+# ----------------------------
+def expected_improvement(X, model, y_best):
+    mu, sigma = model.predict(X, return_std=True)
+    sigma = sigma.reshape(-1, 1)
+    mu = mu.reshape(-1, 1)
+
+    with np.errstate(divide="warn"):
+        Z = (mu - y_best) / sigma
+        ei = (mu - y_best) * norm.cdf(Z) + sigma * norm.pdf(Z)
+        ei[sigma == 0.0] = 0.0
+
+    return ei.ravel()
+
+# ----------------------------
+# Domain grid
+# ----------------------------
+grid_size = 60
+x = np.linspace(-3, 3, grid_size)
+y = np.linspace(-3, 3, grid_size)
+Xg, Yg = np.meshgrid(x, y)
+X_grid = np.column_stack([Xg.ravel(), Yg.ravel()])
+
+# True surface (unknown to BO)
+Z_true = true_function(X_grid).reshape(grid_size, grid_size)
+
+# ----------------------------
+# Initial samples
+# ----------------------------
+np.random.seed(0)
+n_init = 6
+X_obs = np.random.uniform(-3, 3, (n_init, 2))
+y_obs = true_function(X_obs)
+
+# ----------------------------
+# Bayesian optimization loop
+# ----------------------------
+kernel = Matern(nu=2.5)
+gp = GaussianProcessRegressor(kernel=kernel, alpha=1e-6, normalize_y=True)
+
+n_iterations = 12
+
+for _ in range(n_iterations):
+    gp.fit(X_obs, y_obs)
+    ei = expected_improvement(X_grid, gp, y_obs.max())
+    x_next = X_grid[np.argmax(ei)]
+    y_next = true_function(x_next.reshape(1, -1))
+
+    X_obs = np.vstack([X_obs, x_next])
+    y_obs = np.append(y_obs, y_next)
+
+# ----------------------------
+# Final surrogate prediction
+# ----------------------------
+mu, sigma = gp.predict(X_grid, return_std=True)
+mu = mu.reshape(grid_size, grid_size)
+sigma = sigma.reshape(grid_size, grid_size)
+
+# ----------------------------
+# Plot
+# ----------------------------
+plt.figure(figsize=(7, 6))
+
+plt.contourf(Xg, Yg, mu, levels=40)
+plt.scatter(X_obs[:, 0], X_obs[:, 1], c="white", edgecolors="black", s=60)
+plt.title("2D Bayesian Optimization (Synthetic)")
+plt.xlabel("x₁")
+plt.ylabel("x₂")
+plt.colorbar(label="Predicted objective")
+
+plt.tight_layout()
+plt.xticks([])  # Remove x-axis labels
+plt.yticks([])  # Remove y-axis labels
+plt.title([])
+
+plt.axis('off')
+plt.show()

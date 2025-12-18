@@ -1,0 +1,38 @@
+#%%
+import numpy as np
+import matplotlib.pyplot as plt
+
+# x-axis
+x = np.linspace(-5, 5, 1000)
+
+# Parameters
+n_curves = 10
+sigma = 0.8
+shift_step = 0.3
+
+# Color gradients
+reds = np.linspace(0.3, 1.0, n_curves)
+blues = np.linspace(0.3, 1.0, n_curves)
+
+plt.figure(figsize=(6, 4))
+
+# Red curves (shift right)
+for i in range(n_curves):
+    mu = i * shift_step
+    y = np.exp(-(x - mu)**2 / (2 * sigma**2))
+    plt.plot(x, y, color=(reds[i], 0, 0), linewidth=3)
+
+# Blue curves (shift left)
+for i in range(n_curves):
+    mu = -i * shift_step
+    y = np.exp(-(x - mu)**2 / (2 * sigma**2))
+    plt.plot(x, y, color=(0, 0, blues[i]), linewidth=3)
+
+# Styling
+
+plt.tight_layout()
+plt.xticks([])  # Remove x-axis labels
+plt.yticks([])  # Remove y-axis labels
+
+plt.axis('off')
+plt.show()

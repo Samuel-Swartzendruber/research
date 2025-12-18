@@ -1,0 +1,32 @@
+#%%
+from sklearn.datasets import make_blobs
+from sklearn.manifold import TSNE
+import matplotlib.pyplot as plt
+import numpy as np
+
+# 1. Generate one big cluster
+X, y = make_blobs(n_samples=300, n_features=10, centers=1, random_state=42)
+
+# 2. t-SNE dimensionality reduction
+tsne = TSNE(n_components=2, random_state=42)
+X_2d = tsne.fit_transform(X)
+
+# 3. Pick overlay indices
+idx1 = np.random.choice(range(300), size=20, replace=False)
+idx2 = np.random.choice(list(set(range(300)) - set(idx1)), size=20, replace=False)
+
+# 4. Plot
+plt.figure(figsize=(6,6))
+
+# Plot the main cluster
+plt.scatter(X_2d[:, 0], X_2d[:, 1], color='skyblue', alpha=0.7, label='Cluster')
+
+# Overlay square and circle markers
+plt.scatter(X_2d[idx1, 0], X_2d[idx1, 1], marker='s', color='black', label='In-house')
+plt.scatter(X_2d[idx2, 0], X_2d[idx2, 1], marker='o', edgecolor='black', facecolor='none', label='Batch-1')
+
+plt.xticks([])
+plt.yticks([])
+plt.axis('off')
+plt.tight_layout()
+plt.show()

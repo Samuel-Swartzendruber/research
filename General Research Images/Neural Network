@@ -1,0 +1,70 @@
+#%%
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.collections import LineCollection
+from matplotlib.colors import to_rgb
+
+# Network architecture (unchanged)
+layers = [5, 7, 7, 4]
+layer_colors = ["red", "green", "blue", "red"]
+
+fig, ax = plt.subplots(figsize=(5, 4))
+
+# -------------------------
+# Normalize positions to [0,1] axes
+# -------------------------
+n_layers = len(layers)
+positions = []
+
+for i, (n_neurons, color) in enumerate(zip(layers, layer_colors)):
+    x = i / (n_layers - 1)  # horizontal: 0 to 1
+    if n_neurons > 1:
+        y_positions = np.linspace(0, 1, n_neurons)
+    else:
+        y_positions = np.array([0.5])
+    layer_pos = []
+    for y in y_positions:
+        layer_pos.append((x, y))
+    positions.append(layer_pos)
+
+# -------------------------
+# Draw neurons (open circles)
+# -------------------------
+for i, (n_neurons, color) in enumerate(zip(layers, layer_colors)):
+    for (x, y) in positions[i]:
+        ax.scatter(
+            x, y,
+            s=300,
+            facecolors="none",
+            edgecolors=color,
+            linewidths=3,
+            zorder=3
+        )
+
+# -------------------------
+# Draw gradient connections
+# -------------------------
+def gradient_line(x1, y1, x2, y2, color1, color2, n=30):
+    c1 = np.array(to_rgb(color1))
+    c2 = np.array(to_rgb(color2))
+    xs = np.linspace(x1, x2, n)
+    ys = np.linspace(y1, y2, n)
+    segments = [[(xs[i], ys[i]), (xs[i + 1], ys[i + 1])] for i in range(n - 1)]
+    colors = [c1 + (c2 - c1) * i / (n - 1) for i in range(n - 1)]
+    lc = LineCollection(segments, colors=colors, linewidths=1.2, alpha=0.6, zorder=1)
+    ax.add_collection(lc)
+
+for i in range(len(positions) - 1):
+    for (x1, y1) in positions[i]:
+        for (x2, y2) in positions[i + 1]:
+            gradient_line(x1, y1, x2, y2, layer_colors[i], layer_colors[i + 1])
+
+# -------------------------
+# Labels and cleanup
+# -------------------------
+
+ax.set_xlim(-0.05, 1.05)
+ax.set_ylim(-0.05, 1.1)
+ax.axis("off")
+plt.tight_layout()
+plt.show()

@@ -1,0 +1,52 @@
+#%%
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
+from scipy.ndimage import gaussian_filter
+
+# ----------------------------
+# Parameters
+# ----------------------------
+rows, cols = 20, 20  # grid size
+n_clusters = 5       # number of Go clusters
+cluster_size = 3     # approximate size of each cluster
+
+# Initialize grid: all No-Go
+grid = np.zeros((rows, cols))
+
+# ----------------------------
+# Place Go clusters
+# ----------------------------
+np.random.seed(0)
+for _ in range(n_clusters):
+    # Random center
+    cx = np.random.randint(0, cols)
+    cy = np.random.randint(0, rows)
+    
+    # Add Gaussian blob for clustering
+    x = np.arange(cols)
+    y = np.arange(rows)
+    X, Y = np.meshgrid(x, y)
+    blob = np.exp(-((X - cx)**2 + (Y - cy)**2) / (2 * cluster_size**2))
+    grid += blob
+
+# Normalize and threshold to create binary Go/No-Go
+grid = grid / grid.max()
+threshold = 0.3  # higher threshold → fewer Go cells
+checker = (grid > threshold).astype(int)
+
+# ----------------------------
+# Colormap
+# ----------------------------
+colors = ["red", "green"]  # 0=No-Go, 1=Go
+go_nogo_cmap = ListedColormap(colors)
+
+# ----------------------------
+# Plot
+# ----------------------------
+plt.figure(figsize=(6,6))
+plt.imshow(checker, cmap=go_nogo_cmap, origin='upper')
+plt.xticks([])
+plt.yticks([])
+plt.title("Randomized Go/No-Go Map with Clusters")
+plt.show()

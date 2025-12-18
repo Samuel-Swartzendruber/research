@@ -1,0 +1,51 @@
+
+#%%
+import matplotlib.pyplot as plt
+import numpy as np
+
+# Example synthetic data -- replace with your real data arrays
+x = np.linspace(-0.01, 0.6, 500)  # Increased points for smoother curves
+y1 = 0.2 * np.exp(-((x-0.35)/0.1)**2)    # Forward scan
+y2 = -0.2 * np.exp(-((x-0.25)/0.1)**2) # Reverse scan
+
+y3 = 0.22 * np.exp(-((x-0.37)/0.1)**2)    # Forward scan
+y4 = -0.22 * np.exp(-((x-0.23)/0.1)**2) # Reverse scan
+
+y5 = 0.25 * np.exp(-((x-0.40)/0.1)**2)    # Forward scan
+y6 = -0.25 * np.exp(-((x-0.20)/0.1)**2) # Reverse scan
+
+
+
+# Both blue, smooth lines, shifted
+plt.plot(x , y1, color="blue")
+plt.plot(x , y2, color="blue")
+
+# Two more curves (red and green), with different shifts
+plt.plot(x , y3, color="green")
+plt.plot(x , y4, color="green")
+
+plt.plot(x , y5, color="red")
+plt.plot(x , y6, color="red")
+
+#increase line thickness of all curves
+for line in plt.gca().get_lines():
+    line.set_linewidth(5)
+
+#Make plot boundary thicker
+for spine in plt.gca().spines.values():
+    spine.set_linewidth(5)
+
+#Make plot square
+plt.gca().set_aspect('equal', adjustable='box')
+
+
+
+plt.xticks([])  # Remove x-axis labels
+plt.yticks([])  # Remove y-axis labels
+
+plt.show()
+
+
+# %%
+
+
