@@ -1,10 +1,10 @@
 #%%
 import pickle
-import py3Dmol
+import py3Dmol # type: ignore
 
 
 
-with open('train.pkl', 'rb') as f:
+with open('/Users/sdruber/Documents/GitHub/research/Hackathon/DATA/Halo8/train.pkl', 'rb') as f:
     data = pickle.load(f)
 
 print(type(data))
@@ -12,28 +12,28 @@ print(type(data))
 #%%
 reactant = data['reactant']
 
-# # Number of molecules
-# print(len(reactant['num_atoms']))
+# Number of molecules
+print(len(reactant['num_atoms']))
 
-# # Atom count of first molecule
-# print(reactant['num_atoms'][0])
+# Atom count of first molecule
+print(reactant['num_atoms'][0])
 
-# # Atomic numbers of first molecule
-# print(reactant['charges'][0])
+# Atomic numbers of first molecule
+print(reactant['charges'][0])
 
-# # 3D coordinates of first molecule
-# print(reactant['positions'][0])
+# 3D coordinates of first molecule
+print(reactant['positions'][0])
 
-# # Split info is at the TOP level of data, not inside reactant
-# print(data['split_seed'])
-# print(data['split_ratio'])
+# Split info is at the TOP level of data, not inside reactant
+print(data['split_seed'])
+print(data['split_ratio'])
 
 
 #%%
 
 
 def write_xyz_string(atomic_numbers, coords):
-    from ase.data import chemical_symbols
+    from ase.data import chemical_symbols # type: ignore
     symbols = [chemical_symbols[z] for z in atomic_numbers]
     lines = []
     lines.append(str(len(symbols)))
@@ -42,7 +42,8 @@ def write_xyz_string(atomic_numbers, coords):
         lines.append(f"{sym}  {x:.6f}  {y:.6f}  {z:.6f}")
     return "\n".join(lines)
 
-i = 1
+i = 400
+
 xyz_str = write_xyz_string(reactant['charges'][i], reactant['positions'][i])
 
 view = py3Dmol.view(width=600, height=400)

@@ -1,0 +1,209 @@
+#%%
+#Classify transitions based on atom types and cyclic components
+import numpy as np
+import pickle
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import classification_report, confusion_matrix
+from collections import Counter
+
+# Load the data
+with open('/Users/sdruber/Documents/GitHub/research/Hackathon/DATA/Halo8/train.pkl', 'rb') as f:
+    data = pickle.load(f)
+
+# Common atomic numbers: H=1, C=6, N=7, O=8, F=9, P=15, S=16, Cl=17, Br=35, I=53
+# Map atomic numbers to element symbols
+atomic_number_to_symbol = {
+    1: 'H', 6: 'C', 7: 'N', 8: 'O', 9: 'F', 15: 'P', 16: 'S', 17: 'Cl', 35: 'Br', 53: 'I'
+}
+
+# Typical single bond lengths (in Angstroms) for common atoms
+bond_lengths = {
+    ('H', 'H'): 0.74, ('H', 'C'): 1.09, ('H', 'N'): 1.01, ('H', 'O'): 0.96, ('H', 'S'): 1.34, ('H', 'F'): 0.92, ('H', 'Cl'): 1.27,
+    ('C', 'C'): 1.54, ('C', 'N'): 1.47, ('C', 'O'): 1.43, ('C', 'S'): 1.82, ('C', 'F'): 1.35, ('C', 'Cl'): 1.77,
+    ('N', 'N'): 1.45, ('N', 'O'): 1.40, ('N', 'S'): 1.60, ('N', 'F'): 1.37,
+    ('O', 'O'): 1.48, ('O', 'S'): 1.60, ('O', 'F'): 1.41,
+    ('S', 'S'): 2.05, ('S', 'Cl'): 2.07,
+    ('Cl', 'Cl'): 1.99
+}
+
+def get_bond_cutoff(z1, z2):
+    """Get typical bond length for two atoms"""
+    s1 = atomic_number_to_symbol.get(z1, 'X')
+    s2 = atomic_number_to_symbol.get(z2, 'X')
+    
+    # Ensure alphabetical order for lookup
+    key = tuple(sorted([s1, s2]))
+    
+    # Get bond length or default to sum of covalent radii estimate
+    base_length = bond_lengths.get(key, 1.6)
+    
+    # Allow 20% tolerance for bond detection
+    return base_length * 1.2
+
+def detect_cyclic_structures(positions, charges):
+    """Detect cyclic components using realistic bond detection"""
+    from scipy.spatial.distance import cdist
+    
+    # Calculate distance matrix
+    distances = cdist(positions, positions)
+    
+    n_atoms = len(positions)
+    bonds = []
+    
+    for i in range(n_atoms):
+        for j in range(i+1, n_atoms):
+            z_i, z_j = charges[i], charges[j]
+            cutoff = get_bond_cutoff(z_i, z_j)
+            
+            if distances[i, j] < cutoff:
+                bonds.append((i, j))
+    
+    # Find cycles using DFS
+    def has_cycle_dfs(adj_list, n_atoms):
+        """Check if graph has any cycles"""
+        visited = [False] * n_atoms
+        rec_stack = [False] * n_atoms
+        
+        def dfs(node):
+            visited[node] = True
+            rec_stack[node] = True
+            
+            for neighbor in adj_list.get(node, []):
+                if not visited[neighbor]:
+                    if dfs(neighbor):
+                        return True
+                elif rec_stack[neighbor]:
+                    return True
+            
+            rec_stack[node] = False
+            return False
+        
+        for i in range(n_atoms):
+            if not visited[i]:
+                if dfs(i):
+                    return True
+        return False
+    
+    # Build adjacency list
+    adj_list = {i: [] for i in range(n_atoms)}
+    for i, j in bonds:
+        adj_list[i].append(j)
+        adj_list[j].append(i)
+    
+    # Check if molecule has any cycles
+    has_cycle = has_cycle_dfs(adj_list, n_atoms)
+    
+    return 1 if has_cycle else 0, len(bonds)
+
+# Extract atom compositions from each molecule
+def get_atom_composition_features(charges_array, positions_array=None, idx=None):
+    """Extract features based on atom types and cyclic components"""
+    # Count occurrences of each atomic number
+    counter = Counter(charges_array)
+    
+    # Create feature vector for common elements
+    features = {}
+    features['has_C'] = 1 if 6 in counter else 0
+    features['has_N'] = 1 if 7 in counter else 0
+    features['has_O'] = 1 if 8 in counter else 0
+    features['has_S'] = 1 if 16 in counter else 0
+    features['has_Cl'] = 1 if 17 in counter else 0
+    features['has_F'] = 1 if 9 in counter else 0
+    features['count_C'] = counter.get(6, 0)
+    features['count_N'] = counter.get(7, 0)
+    features['count_O'] = counter.get(8, 0)
+    features['count_S'] = counter.get(16, 0)
+    
+    # Add cyclic features if positions available
+    if positions_array is not None and idx is not None:
+        try:
+            has_cycle, n_bonds = detect_cyclic_structures(positions_array, charges_array)
+            features['num_cycles'] = has_cycle  # Now binary: 0 or 1
+            features['num_bonds'] = n_bonds
+            features['is_cyclic'] = has_cycle
+        except:
+            features['num_cycles'] = 0
+            features['num_bonds'] = 0
+            features['is_cyclic'] = 0
+    else:
+        features['num_cycles'] = 0
+        features['num_bonds'] = 0
+        features['is_cyclic'] = 0
+    
+    return features
+
+# Create feature matrix
+n_samples = len(data['reactant']['num_atoms'])
+feature_list = []
+
+for i in range(n_samples):
+    feat_dict = get_atom_composition_features(
+        data['reactant']['charges'][i], 
+        data['reactant']['positions'][i],
+        i
+    )
+    feature_list.append(feat_dict)
+
+# Convert to numpy array
+feature_names = list(feature_list[0].keys())
+features = np.array([[f[name] for name in feature_names] for f in feature_list])
+
+# Create labels based on cyclic components
+# Label 1: Contains cyclic structures
+# Label 0: Acyclic (linear/branched)
+labels = np.array([f['is_cyclic'] for f in feature_list])
+
+print(f"Feature names: {feature_names}")
+print(f"Feature matrix shape: {features.shape}")
+print(f"Label distribution: {np.bincount(labels)}")
+print(f"Cyclic molecules: {labels.sum()}, Acyclic molecules: {len(labels) - labels.sum()}")
+
+# Debug: Show some examples
+print("\n=== Sample Molecules ===")
+for i in range(min(5, n_samples)):
+    print(f"Molecule {i}: cycles={feature_list[i]['num_cycles']}, bonds={feature_list[i]['num_bonds']}, is_cyclic={feature_list[i]['is_cyclic']}, atoms={data['reactant']['num_atoms'][i]}")
+
+# Normalize the features
+scaler = StandardScaler()
+features_scaled = scaler.fit_transform(features)
+
+# Train a Random Forest Classifier
+rf_classifier = RandomForestClassifier(n_estimators=100, random_state=42, max_depth=10)
+rf_classifier.fit(features_scaled, labels) 
+
+# Predict on the training data
+predictions = rf_classifier.predict(features_scaled)
+
+# Print results
+print("\n=== Classification Results ===")
+print(classification_report(labels, predictions, labels=[0, 1], target_names=['Acyclic', 'Cyclic'], zero_division=0))
+print("\nConfusion Matrix:\n", confusion_matrix(labels, predictions, labels=[0, 1]))
+
+# Feature importance
+print("\n=== Feature Importance ===")
+for name, importance in zip(feature_names, rf_classifier.feature_importances_):
+    print(f"{name}: {importance:.4f}")
+
+# %%
+# Find acyclic molecules
+print("\n=== Searching for Acyclic Molecules ===")
+acyclic_indices = [i for i, f in enumerate(feature_list) if f['is_cyclic'] == 0]
+
+if len(acyclic_indices) == 0:
+    print("No acyclic molecules found in dataset!")
+    print("All molecules appear to be cyclic.")
+    print("\nLet's check the bond detection - looking at molecule with fewest bonds:")
+    bond_counts = [f['num_bonds'] for f in feature_list]
+    min_idx = bond_counts.index(min(bond_counts))
+    print(f"Molecule {min_idx}: {data['reactant']['num_atoms'][min_idx]} atoms, {bond_counts[min_idx]} bonds")
+    print(f"  Atoms: {data['reactant']['charges'][min_idx]}")
+else:
+    print(f"Found {len(acyclic_indices)} acyclic molecules!")
+    for idx in acyclic_indices[:5]:  # Show first 5
+        f = feature_list[idx]
+        print(f"\nMolecule {idx}:")
+        print(f"  Atoms: {data['reactant']['num_atoms'][idx]}")
+        print(f"  Composition: {data['reactant']['charges'][idx]}")
+        print(f"  Bonds: {f['num_bonds']}")
+        print(f"  Element counts - C: {f['count_C']}, N: {f['count_N']}, O: {f['count_O']}, S: {f['count_S']}")

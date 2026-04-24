@@ -1,0 +1,49 @@
+#I would like to do a simple unsupervised classification the train.pkl from the Hackathon dataset, starting with Halo8 data. 
+#%%
+import pickle
+import numpy as np
+from sklearn.cluster import KMeans
+import matplotlib.pyplot as plt
+
+# Load the data
+with open('/Users/sdruber/Documents/GitHub/research/Hackathon/DATA/Halo8/train.pkl', 'rb') as f:
+    data = pickle.load(f)
+
+# Extract features (using the number of atoms and average atomic number as simple features)
+num_atoms = np.array(data['reactant']['num_atoms'])
+avg_atomic_number = np.array([np.mean(charges) for charges in data['reactant']['charges']])
+
+# Check for NaN and Inf values
+print("NaN in num_atoms:", np.isnan(num_atoms).sum())
+print("NaN in avg_atomic_number:", np.isnan(avg_atomic_number).sum())
+print("Inf in avg_atomic_number:", np.isinf(avg_atomic_number).sum())
+
+# Check ranges
+print("\nnum_atoms range:", num_atoms.min(), "-", num_atoms.max())
+print("avg_atomic_number range:", avg_atomic_number.min(), "-", avg_atomic_number.max())
+
+# Check for zero variance
+print("\nFeatures scaled - std devs:", features_scaled.std(axis=0)) # type: ignore
+# Combine features into a single array
+features = np.column_stack((num_atoms, avg_atomic_number))
+
+# ← INSERT THE NORMALIZATION CODE HERE ←
+from sklearn.preprocessing import StandardScaler
+scaler = StandardScaler()
+features_scaled = scaler.fit_transform(features)
+
+# Perform KMeans clustering
+kmeans = KMeans(n_clusters=3, random_state=42)
+clusters = kmeans.fit_predict(features_scaled)  # ← Use features_scaled here
+
+# Plot the clusters
+plt.figure(figsize=(10, 6))
+plt.scatter(features[:, 0], features[:, 1], c=clusters, cmap='viridis')  # ← Keep original features for plotting
+plt.xlabel('Number of Atoms')
+plt.ylabel('Average Atomic Number')
+plt.title('KMeans Clustering of Reactants')
+plt.colorbar(label='Cluster')
+plt.show() 
+
+
+# %%
