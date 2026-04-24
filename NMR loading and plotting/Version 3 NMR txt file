@@ -1,0 +1,48 @@
+#%% A simple GUI to pick a TXT file and plot its data using matplotlib %%
+import tkinter as tk
+from tkinter import filedialog
+import numpy as np
+import matplotlib.pyplot as plt
+
+def pick_and_plot():
+    # Open file picker
+    file_path = filedialog.askopenfilename(
+        title="Select a TXT file",
+        filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
+    )
+
+    if not file_path:
+        return
+
+    # Load data (assumes columns of numbers)
+    try:
+        data = np.loadtxt(file_path)
+    except Exception as e:
+        print(f"Error loading file: {e}")
+        return
+
+    # Handle 1D or 2D data
+    if data.ndim == 1:
+        x = np.arange(len(data))
+        y = data
+    else:
+        x = data[:, 0]
+        y = data[:, 1]
+
+    # Plot
+    plt.figure()
+    plt.plot(x, y)
+    plt.xlabel("X")
+    plt.ylabel("Y")
+    plt.title(file_path.split("/")[-1])
+    plt.show()
+
+# --- GUI ---
+root = tk.Tk()
+root.title("TXT File Plotter")
+root.geometry("300x100")
+
+button = tk.Button(root, text="Select TXT File & Plot", command=pick_and_plot)
+button.pack(expand=True)
+
+root.mainloop()

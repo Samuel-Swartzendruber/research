@@ -1,0 +1,144 @@
+#%%
+import tkinter as tk
+from tkinter import filedialog
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+
+# ---------------- USER SETTINGS ----------------
+
+# ---- Axis titles ----
+X_LABEL = "ppm"
+Y_LABEL = "Intensity (offset)"
+
+# ---- Axis limits (None = auto) ----
+X_LIM = (-60, -150)          # e.g., (10, 0)
+Y_LIM = None          # e.g., (-0.5, 6)
+
+# ---- Stacking ----
+OFFSET_STEP = 1.2     # vertical spacing between curves
+
+# ---- Label styling ----
+LABEL_X = 0.98        # X position in axes coordinates (0 = left, 1 = right)
+LABEL_Y_OFFSET = 0.0  # vertical offset relative to curve
+LABEL_FONT_SIZE = 9
+
+# ---- Label placement per spectrum (optional) ----
+# Format: {"filename.csv": (X_position_axes, Y_offset)}
+LABEL_POS_OVERRIDES = {
+
+    "sample1.csv": (0.95, 0.05),
+    "sample2.csv": (0.98, -0.05)
+}
+
+# ---- Axis scaling options ----
+INVERT_X_AXIS = True
+LOG_Y = False
+
+# ---- Naming mode ----
+# Options: "filename" | "folder" | "folder_plus_file" | "manual"
+NAME_MODE = "filename"
+NAME_MAP = {
+    # Only used if NAME_MODE == "manual"
+    # "sample1.csv": "0 h",
+    # "sample2.csv": "1 h"
+}
+# -------------------------------------------------
+
+
+# ---- Helper function: determine spectrum name ----
+def get_spectrum_name(path):
+    fname = os.path.basename(path)
+    if NAME_MODE == "filename":
+        return os.path.splitext(fname)[0]
+    elif NAME_MODE == "folder":
+        return os.path.basename(os.path.dirname(path))
+    elif NAME_MODE == "folder_plus_file":
+        folder = os.path.basename(os.path.dirname(path))
+        file = os.path.splitext(fname)[0]
+        return f"{folder} – {file}"
+    elif NAME_MODE == "manual":
+        return NAME_MAP.get(fname, os.path.splitext(fname)[0])
+    return os.path.splitext(fname)[0]
+
+
+# ---- Main plotting function ----
+def load_and_stack_plot():
+    file_paths = filedialog.askopenfilenames(
+        filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+    )
+
+    if not file_paths:
+        return
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+
+    offset = 0.0
+
+    for path in file_paths:
+        data = np.loadtxt(path, delimiter=',')
+
+        x = data[:, 0]
+        y = data[:, 1]
+
+        y = y / y.max()  # normalize
+
+        ax.plot(x, y + offset, linewidth=1)
+
+        # ---- Determine label ----
+        name = get_spectrum_name(path)
+
+        # Check for per-spectrum overrides
+        if os.path.basename(path) in LABEL_POS_OVERRIDES:
+            lx, ly = LABEL_POS_OVERRIDES[os.path.basename(path)]
+        else:
+            lx, ly = LABEL_X, LABEL_Y_OFFSET
+
+        ax.text(
+            lx,
+            offset + ly,
+            name,
+            transform=ax.get_yaxis_transform(),  # X in axes coords, Y in data coords
+            ha='right' if lx > 0.5 else 'left',
+            va='center',
+            fontsize=LABEL_FONT_SIZE
+        )
+
+        offset += OFFSET_STEP
+
+    # ---- Axis settings ----
+    ax.set_xlabel(X_LABEL)
+    ax.set_ylabel(Y_LABEL)
+
+    if INVERT_X_AXIS:
+        ax.invert_xaxis()
+    if LOG_Y:
+        ax.set_yscale("log")
+    if X_LIM is not None:
+        ax.set_xlim(X_LIM)
+    if Y_LIM is not None:
+        ax.set_ylim(Y_LIM)
+
+    plt.tight_layout()
+    plt.show()
+
+
+# ---- GUI ----
+root = tk.Tk()
+root.title("Stacked CSV Spectrum Plotter")
+root.geometry("350x140")
+
+button = tk.Button(
+    root,
+    text="Load Multiple CSVs\nand Stack Plot",
+    command=load_and_stack_plot,
+    font=("Arial", 12),
+    padx=10,
+    pady=10
+)
+
+button.pack(expand=True)
+root.mainloop()
+
+# ---- Stop execution after GUI closes ----
+raise SystemExit

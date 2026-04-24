@@ -1,0 +1,96 @@
+#%%
+import numpy as np
+from scipy.optimize import fsolve
+import matplotlib.pyplot as plt
+
+# -------------------------
+# Constants (SI)
+# -------------------------
+R = 8.314
+F = 96485
+T = 298
+n = 2
+
+E_eq = 1.74  # V
+
+# -------------------------
+# Kinetics (convert to A/m^2)
+# -------------------------
+i0_zn = 60   # A/m^2
+i0_ni = 0.61  # A/m^2
+
+# Roughness factors
+f_zn = 2
+f_ni = 100
+
+i0_zn_eff = i0_zn * f_zn
+i0_ni_eff = i0_ni * f_ni
+
+# Transfer coefficients (FIXED Zn)
+alpha_a_zn = 1.5
+alpha_c_zn = 0.5
+
+alpha_a_ni = 0.5
+alpha_c_ni = 0.5
+
+# -------------------------
+# Electrolyte (SI units)
+# -------------------------
+kappa = 60 # S/m
+L = 0.2        # m 
+
+def eta_ohm(i):
+    return i * (L / kappa)
+
+# -------------------------
+# FULL Butler–Volmer inversion
+# -------------------------
+
+def eta_from_bv(i, i0, alpha_a, alpha_c):
+    def bv_eq(eta):
+        return i0 * (
+            np.exp(alpha_a * n * F * eta / (R*T)) -
+            np.exp(-alpha_c * n * F * eta / (R*T))
+        ) - i
+
+    return fsolve(bv_eq, 0.05)[0]
+
+# Zn anode
+def eta_zn(i):
+    return eta_from_bv(i, i0_zn_eff, alpha_a_zn, alpha_c_zn)
+
+# Ni cathode
+def eta_ni(i):
+    return eta_from_bv(i, i0_ni_eff, alpha_a_ni, alpha_c_ni)
+
+# -------------------------
+# Cell equation
+# -------------------------
+def g(i, V):
+    return E_eq + eta_zn(i) + eta_ni(i) + eta_ohm(i) - V
+
+# -------------------------
+# Solve I–V curve
+# -------------------------
+voltages = np.linspace(1.0, 2.2, 40)
+currents = []
+
+i_guess = 1e4  # A/m^2 initial guess
+
+for V in voltages:
+    sol = fsolve(g, i_guess, args=(V,))
+    i_guess = sol[0]
+    currents.append(sol[0])
+
+currents = np.array(currents)
+
+# -------------------------
+# Plot (SI)
+# -------------------------
+plt.figure()
+plt.plot(currents, voltages)
+plt.xlabel("Current density (A/m²)")
+plt.ylabel("Voltage (V)")
+plt.title("Ni/Zn Cell Full Butler–Volmer Model (SI Units)")
+plt.grid()
+plt.show()

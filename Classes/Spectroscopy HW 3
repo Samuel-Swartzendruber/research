@@ -1,0 +1,244 @@
+#%%
+
+#Contributions:  Most of this code was written using ChatGPT Codex. 
+
+#PROBLEM 2B
+#code out Morse potential
+import numpy as np
+
+def morse_potential(R_A, De_eV, a_Ainv, Re_A):
+    """
+    Morse potential V(R) in Joules.
+
+    Parameters
+    ----------
+    R_A    : array_like
+        Internuclear distance grid in Angstrom.
+    De_eV  : float
+        Dissociation energy D_e in eV.
+    a_Ainv : float
+        Morse range parameter a in Angstrom^-1.
+    Re_A   : float
+        Equilibrium bond length R_e in Angstrom.
+    """
+    EV_TO_J = 1.60218e-19  # eV to Joules conversion factor
+    De_J = De_eV * EV_TO_J
+    return De_J * (1.0 - np.exp(-a_Ainv * (R_A - Re_A)))**2
+
+
+#now plot it for both HCl and CO
+import matplotlib.pyplot as plt
+
+R_A = np.linspace(0.75, 10, 1000)
+De_eV_HCl =5.3
+De_eV_CO = 11.1
+a_Ainv_HCl = 1.74 # Å^-1
+a_Ainv_CO = 2.31 # Å^-1
+Re_A_HCl = 1.275 # Å
+Re_A_CO = 1.128 # Å
+
+V_HCl = morse_potential(R_A, De_eV_HCl, a_Ainv_HCl, Re_A_HCl)
+V_CO = morse_potential(R_A, De_eV_CO, a_Ainv_CO, Re_A_CO)
+
+#plot both
+plt.plot(R_A, V_HCl, label="HCl")
+plt.plot(R_A, V_CO, label="CO")
+plt.xlabel("R (Å)")
+plt.ylabel("V (J)")
+plt.title("Morse Potential")
+plt.legend()
+plt.grid()
+plt.show()
+
+
+
+#%%
+
+#PROBLEM 2C
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.special import genlaguerre
+
+# --- Constants ---
+HBAR = 1.0545718e-34      # J·s
+AMU_TO_KG = 1.66054e-27   # kg
+EV_TO_J = 1.60218e-19     # J
+ANGSTROM_TO_M = 1e-10     # m
+
+# --- Reduced masses (amu) ---
+mu_HCl = (1.0 * 35.45) / (1.0 + 35.45)
+mu_CO  = (12.0 * 16.0) / (12.0 + 16.0)
+
+def morse_wavefunction(n, R_A, De_eV, a_Ainv, Re_A, mu_amu):
+    """
+    Morse wavefunction ψ_n(R) for vibrational level n.
+    Properly normalized (numerically).
+    """
+    # Unit conversions
+    De_J = De_eV * EV_TO_J
+    mu = mu_amu * AMU_TO_KG
+    a_m = a_Ainv / ANGSTROM_TO_M  # Å^-1 → m^-1
+
+    # Morse parameter λ
+    lambda_ = np.sqrt(2 * mu * De_J) / (a_m * HBAR)
+
+    # Max allowed bound state
+    n_max = int(lambda_ - 0.5)
+    if n > n_max:
+        return None  # skip invalid states cleanly
+
+    # Dimensionless variables
+    s_n = lambda_ - n - 0.5
+    y = 2 * lambda_ * np.exp(-a_Ainv * (R_A - Re_A))  # stays dimensionless
+
+    # Laguerre polynomial
+    L_n_alpha = genlaguerre(n, 2 * s_n)
+
+    # Wavefunction
+    psi_n = np.exp(-y / 2) * y**s_n * L_n_alpha(y)
+
+    # Normalize numerically
+    norm = np.trapezoid(psi_n**2, R_A)
+    psi_n /= np.sqrt(norm)
+
+    return psi_n
+
+R_A = np.linspace(0.5, 5.0, 1000)
+
+De_eV_HCl = 5.3
+a_Ainv_HCl = 1.74 # Å^-1
+Re_A_HCl = 1.275 # Å
+
+De_eV_CO = 11.1
+a_Ainv_CO = 2.31 # Å^-1
+Re_A_CO = 1.128 # Å
+
+# --- Plot HCl ---
+plt.figure(figsize=(10, 5))
+for n in range(4):
+    psi = morse_wavefunction(n, R_A, De_eV_HCl, a_Ainv_HCl, Re_A_HCl, mu_HCl)
+    if psi is not None:
+        plt.plot(R_A, psi + n*0.2, label=f"n={n}")
+
+plt.xlabel("R (Å)")
+plt.ylabel("ψₙ(R)")
+plt.title("Morse Wavefunctions for HCl")
+plt.legend()
+plt.grid()
+plt.show()
+
+# --- Plot CO ---
+plt.figure(figsize=(10, 5))
+for n in range(4):
+    psi = morse_wavefunction(n, R_A, De_eV_CO, a_Ainv_CO, Re_A_CO, mu_CO)
+    if psi is not None:
+        plt.plot(R_A, psi + n*0.2, label=f"n={n}")
+
+plt.xlabel("R (Å)")
+plt.ylabel("ψₙ(R)")
+plt.title("Morse Wavefunctions for CO")
+plt.legend()
+plt.grid()
+plt.show()
+
+#Adjust legend to show that plots shifted vertically for clarity.
+plt.figtext(0.5, 0.01, "Note: Wavefunctions are shifted vertically for clarity.", ha="center", fontsize=10)
+
+
+# %%
+
+#%%
+#PROBLEM 2D
+#Here we will calculate line strength of 0 --> 1, 0 --> 2, and 0 --> 3 for both HCl and CO.  We will let mu = 1. 
+
+#For the transition, we will calculate mu_kl for the transition, which is done using 𝜇_𝑚𝑚 = ∫ 𝜓𝑚 ∗ 𝑥 𝜓n dx and have the line strength S = |mu|^2
+
+def transition_dipole(n_initial, n_final, R_A, De_eV, a_Ainv, Re_A, mu_amu):
+    psi_initial = morse_wavefunction(n_initial, R_A, De_eV, a_Ainv, Re_A, mu_amu)
+    psi_final = morse_wavefunction(n_final, R_A, De_eV, a_Ainv, Re_A, mu_amu)
+    
+    # Transition dipole moment (assuming x = R for simplicity)
+    mu_mn = np.trapezoid(psi_initial * R_A * psi_final, R_A)
+    
+    return mu_mn
+
+# Calculate line strengths for HCl
+print("HCl Line Strengths:")
+for n_final in range(1, 4):
+    mu = transition_dipole(0, n_final, R_A, De_eV_HCl, a_Ainv_HCl, Re_A_HCl, mu_HCl)
+    S = mu**2
+    print(f"0 --> {n_final}: S = {S:.4e}") 
+
+# Calculate line strengths for CO
+print("\nCO Line Strengths:")
+for n_final in range(1, 4):
+    mu = transition_dipole(0, n_final, R_A, De_eV_CO, a_Ainv_CO, Re_A_CO, mu_CO)
+    S = mu**2
+    print(f"0 --> {n_final}: S = {S:.4e}")
+
+
+
+# %%
+
+
+#%%
+#Problem 2E
+#Calculate transition dipole matrix elements for all 0 --> n transitions up to n_max for both HCl and CO.  We will now include the quadratic term of the expansion
+
+#Where ⟨𝑛|𝜇|0⟩ = 𝝁′⟨𝑛|𝜇|0⟩ + 0.5 𝝁''⟨𝑛|x^2|0⟩.
+
+#We will do this as a function of the anharmonicity parameter x_e, which is as follows
+# 𝑥_𝑒 = ℏ𝑎 / sqrt(8 m_R D_e), where m_R is the reduced mass and a is the parameter we calculated earlier
+def anharmonicity_parameter(a_Ainv, mu_amu, De_eV):
+    De_J = De_eV * EV_TO_J
+    mu = mu_amu * AMU_TO_KG
+    a_m = a_Ainv / ANGSTROM_TO_M  # Å^-1 → m^-1
+    x_e = HBAR * a_m / np.sqrt(8 * mu * De_J)
+    return x_e
+
+# Calculate anharmonicity parameters
+x_e_HCl = anharmonicity_parameter(a_Ainv_HCl, mu_HCl, De_eV_HCl)
+x_e_CO = anharmonicity_parameter(a_Ainv_CO, mu_CO, De_eV_CO)
+
+print(f"HCl anharmonicity parameter x_e: {x_e_HCl:.4e}")
+print(f"CO anharmonicity parameter x_e: {x_e_CO:.4e}")
+
+#Calculate transition dipole matrix elements including quadratic term
+def transition_dipole_with_quadratic(n_initial, n_final, R_A, De_eV, a_Ainv, Re_A, mu_amu):
+    psi_initial = morse_wavefunction(n_initial, R_A, De_eV, a_Ainv, Re_A, mu_amu)
+    psi_final = morse_wavefunction(n_final, R_A, De_eV, a_Ainv, Re_A, mu_amu)
+    
+    # Linear term
+    mu_linear = np.trapezoid(psi_initial * R_A * psi_final, R_A)
+    
+    # Quadratic term
+    mu_quadratic = 0.1*0.5* np.trapezoid(psi_initial * R_A**2 * psi_final, R_A)  # Here I set mu'' = mu' / 10.
+    return mu_linear + mu_quadratic
+
+# Calculate line strengths for HCl with quadratic term
+print("\nHCl Line Strengths with Quadratic Term:")
+for n_final in range(1, 4):
+    mu = transition_dipole_with_quadratic(0, n_final, R_A, De_eV_HCl, a_Ainv_HCl, Re_A_HCl, mu_HCl)
+    S = mu**2
+    print(f"0 --> {n_final}: S = {S:.4e}")
+
+# Calculate line strengths for CO with quadratic term
+print("\nCO Line Strengths with Quadratic Term:")
+for n_final in range(1, 4):
+    mu = transition_dipole_with_quadratic(0, n_final, R_A, De_eV_CO, a_Ainv_CO, Re_A_CO, mu_CO)     
+    S = mu**2
+    print(f"0 --> {n_final}: S = {S:.4e}")
+
+#Compare results with and without quadratic term with u'' = u' / 10
+print("\nComparison with and without Quadratic Term - HCl:")
+for n_final in range(1, 4):
+    mu_linear = transition_dipole(0, n_final, R_A, De_eV_HCl, a_Ainv_HCl, Re_A_HCl, mu_HCl)
+    mu_quadratic = transition_dipole_with_quadratic(0, n_final, R_A, De_eV_HCl, a_Ainv_HCl, Re_A_HCl, mu_HCl)
+    print(f"0 --> {n_final}: Linear = {mu_linear**2:.4e}, Quadratic = {mu_quadratic**2:.4e}")
+
+print("\nComparison with and without Quadratic Term - CO:")
+for n_final in range(1, 4):
+    mu_linear = transition_dipole(0, n_final, R_A, De_eV_CO, a_Ainv_CO, Re_A_CO, mu_CO)
+    mu_quadratic = transition_dipole_with_quadratic(0, n_final, R_A, De_eV_CO, a_Ainv_CO, Re_A_CO, mu_CO)
+    print(f"0 --> {n_final}: Linear = {mu_linear**2:.4e}, Quadratic = {mu_quadratic**2:.4e}")
+# %%

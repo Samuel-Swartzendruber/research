@@ -1,0 +1,61 @@
+#%%
+import numpy as np
+import matplotlib.pyplot as plt
+import tkinter as tk
+from tkinter import filedialog
+import os
+
+# ---------------- GUI file picker ----------------
+root = tk.Tk()
+root.withdraw()
+
+file_paths = filedialog.askopenfilenames(
+    title="Select spectra text files",
+    filetypes=[("Text files", "*.txt *.dat *.asc"), ("All files", "*.*")]
+)
+
+if not file_paths:
+    print("No files selected. Exiting.")
+    exit()
+
+# ---------------- Plot settings ----------------
+offset = 0.0
+offset_step = 1.2   # vertical spacing between spectra
+scale = 1.0         # intensity scaling if needed
+
+plt.figure(figsize=(8, 6))
+
+# ---------------- Load & plot spectra ----------------
+for file_path in file_paths:
+    data = np.loadtxt(file_path)
+
+    x = data[:, 0]
+    y = data[:, 1] * scale
+
+    y_stacked = y + offset
+
+    plt.plot(x, y_stacked, linewidth=1)
+
+    # Label just above baseline
+    label_y = offset + 0.05 * np.max(y)
+    filename = os.path.basename(file_path)
+    plt.text(
+        x[0],
+        label_y,
+        filename,
+        fontsize=9,
+        verticalalignment="bottom"
+    )
+
+    offset += offset_step * np.max(y)
+
+# ---------------- Axes formatting ----------------
+plt.xlabel("X-axis")
+plt.ylabel("Intensity (offset)")
+plt.title("Stacked Spectra")
+plt.tight_layout()
+
+# Reverse x-axis if plotting NMR ppm
+plt.gca().invert_xaxis()
+
+plt.show()

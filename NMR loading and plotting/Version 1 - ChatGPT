@@ -1,0 +1,47 @@
+#%%
+import tkinter as tk
+from tkinter import filedialog
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+def load_and_plot():
+    file_path = filedialog.askopenfilename(
+        filetypes=[("txt files", "*.txt"), ("All files", "*.*")]
+    )
+
+    if not file_path:
+        return
+
+    # Load clean two-column CSV
+    data = np.loadtxt(file_path, delimiter=',')
+
+    x = data[:, 0]
+    y = data[:, 1]
+
+    plt.figure(figsize=(8, 4))
+    plt.plot(x, y, linewidth=1)
+    plt.gca().invert_xaxis()   # NMR-style ppm axis
+    plt.xlabel("ppm")
+    plt.ylabel("Intensity")
+    plt.title(file_path.split("/")[-1])
+    plt.tight_layout()
+    plt.show()
+
+
+# ---- GUI ----
+root = tk.Tk()
+root.title("CSV Spectrum Plotter")
+root.geometry("300x120")
+
+button = tk.Button(
+    root,
+    text="Load CSV and Plot",
+    command=load_and_plot,
+    font=("Arial", 12),
+    padx=10,
+    pady=10
+)
+
+button.pack(expand=True)
+root.mainloop()
