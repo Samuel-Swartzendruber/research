@@ -42,7 +42,7 @@ def write_xyz_string(atomic_numbers, coords):
         lines.append(f"{sym}  {x:.6f}  {y:.6f}  {z:.6f}")
     return "\n".join(lines)
 
-i = 400
+i = 400. #Call any molecule up to i = 1400.
 
 xyz_str = write_xyz_string(reactant['charges'][i], reactant['positions'][i])
 
