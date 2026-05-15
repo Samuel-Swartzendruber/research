@@ -1,0 +1,77 @@
+#%%
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy import stats
+
+# CV Data from your table
+scan_rates = np.array([10, 25, 50, 100, 250, 500])  # mV/s
+delta_Ep = np.array([95, 108, 125, 145, 180, 210])  # mV
+anodic_current = np.array([3.1, 5.0, 6.6, 8.1, 9.5, 10.3])  # µA
+
+#Convert all units to SI
+delta_Ep = delta_Ep / 1000  # V
+anodic_current = anodic_current / 1e6  # A
+scan_rates = scan_rates / 1000  # V/s
+
+
+
+# Physical constants
+F = 96485  # Faraday constant, C/mol
+R = 8.314  # Gas constant, J/(mol·K)
+T = 298.15  # Temperature, K
+n = 1  # Number of electrons (single-electron reaction)
+
+#plot delta Ep vs log(scan rate)
+plt.figure(figsize=(7,5))
+plt.plot(np.log(scan_rates), delta_Ep, 'o-')
+plt.xlabel('ln(Scan Rate) (V/s)')
+plt.ylabel('ΔEp (V)')
+plt.title('ΔEp vs ln(Scan Rate)')
+plt.grid()
+plt.tight_layout()
+plt.show()
+
+#linear fit to delta Ep vs log(scan rate)
+slope, intercept, r_value, p_value, std_err = stats.linregress(np.log(scan_rates), delta_Ep)
+print(f"Linear fit: ΔEp = {slope:.4f} * ln(Scan Rate) + {intercept:.4f}")
+print(f"R-squared: {r_value**2:.4f}")
+
+#get transfer coefficient alpha from slope
+alpha = (slope * n * F) / (R * T)
+print(f"Transfer coefficient α = {alpha:.4f}")  
+
+
+#electrode characteristics
+A = 1  # Electrode area in cm^2
+C = 1  # Concentration in mol/m^3
+
+#plot i_p vs sqrt(scan rate)
+plt.figure(figsize=(7,5))
+plt.plot(np.sqrt(scan_rates), anodic_current, 'o-')
+plt.xlabel('sqrt(Scan Rate) (V^0.5/s^0.5)')
+plt.ylabel('Anodic Peak Current (A)')
+plt.title('Anodic Peak Current vs sqrt(Scan Rate)')
+plt.grid()
+plt.tight_layout()
+plt.show()
+
+#linear fit to i_p vs sqrt(scan rate) to get diffusion coefficient D
+slope_ip, intercept_ip, r_value_ip, p_value_ip, std_err_ip = stats.linregress(np.sqrt(scan_rates), anodic_current)
+print(f"Linear fit: i_p = {slope_ip:.4e} * sqrt(Scan Rate) + {intercept_ip:.4e}")
+print(f"R-squared: {r_value_ip**2:.4f}")
+
+#get diffusion coefficient D from slope using Randles-Sevcik equation for irreversible systems:
+# i_p = (0.4463 * n * F * A * C * sqrt(D) * sqrt(scan_rate))
+D = (slope_ip / (0.4463 * n * F * A * C))**2
+print(f"Diffusion coefficient D = {D:.4e} cm^2/s")
+
+#Now get the heterogeneous rate constant k0 using the transfer coefficient alpha and the diffusion coefficient D:
+# k0 = (alpha * n * F * D) / (R * T)
+k0 = (alpha * n * F * D) / (R * T)
+print(f"Heterogeneous rate constant k0 = {k0:.4e} cm/s")
+
+#check for correct units
+print(f"Transfer coefficient α = {alpha:.4f}")
+print(f"Diffusion coefficient D = {D:.4e} cm^2/s")
+print(f"Heterogeneous rate constant k0 = {k0:.4e} cm/s")
+

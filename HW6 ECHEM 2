@@ -1,0 +1,51 @@
+#%%
+
+#make properly formatted data for plotting
+import matplotlib.pyplot as plt
+import numpy as np 
+
+rpm = [100, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000]
+I = [104, 230, 325, 404, 470, 520, 565, 607, 660]
+
+
+#convert current from microamps to amps
+I = [i * 1e-6 for i in I]
+
+#radius of disk electrode is 0.001 m, so area is pi*r^2 in m^2
+area = np.pi * (0.001)**2   
+
+#convert current to current density in A/m^2
+I = [i / area for i in I]
+
+#Convert rotation speed to angular velocity in rad/s
+omega = [2*np.pi*(r/60) for r in rpm]
+
+#make a plot of (i) vs omega^0.5
+plt.figure(figsize=(8,6))
+plt.plot(np.sqrt(omega), I, 'o-', color='blue')
+plt.xlabel(r'$\omega^{0.5}$ (rad/s)$^{0.5}$', fontsize=12)
+plt.ylabel(r'$i$ (current density)', fontsize=12)
+plt.title('Current Density vs. Square Root of Angular Velocity', fontsize=14)
+plt.grid(True, which='both', linestyle='--', linewidth=0.5)
+plt.show()
+
+#Get slope of the line, which is proportional to 0.62nFAD^2/3v^-1/6
+slope = np.polyfit(np.sqrt(omega), I, 1)[0]
+print(f"Slope: {slope}")
+
+#slope = 0.62 * n * F * D**(2/3) * v**(-1/6)*(concentration)
+
+concentration = 25  # mol/m^3
+F = 96485  # C/mol
+v = 1e-6  # m^2/s
+n = 2  # number of electrons transferred
+
+
+#calculate D from slope
+
+D = (slope / (v**(-1/6) * 0.62 * n * F * concentration))**(3/2)
+print(f"Diffusion coefficient D: {D:.2e} m^2/s")
+
+#expressin cm^2/s
+D_cm2_s = D * 1e4  # convert m^2/s to cm^2/s
+print(f"Diffusion coefficient D: {D_cm2_s:.2e} cm^2/s")
