@@ -1,0 +1,328 @@
+#%%
+#!/usr/bin/env python3
+"""
+Bruker NMR Spectrum Plotter
+----------------------------
+Reads a Bruker folder, applies automated phase correction and
+baseline (background) subtraction, then plots the result.
+
+Usage:
+    python bruker_nmr_plot.py /path/to/bruker_folder [options]
+
+Options:
+    --no-phase          Skip automatic phase correction
+    --no-baseline       Skip baseline subtraction
+    --p0 FLOAT          Manual zero-order phase (degrees), disables auto-phase
+    --p1 FLOAT          Manual first-order phase (degrees), disables auto-phase
+    --output FILE       Save plot to file instead of displaying (e.g. spec.png)
+    --ppm-range MIN MAX Zoom to a specific ppm window (e.g. --ppm-range 0 10)
+    --proc-number INT   Bruker processed data number (default: 1)
+"""
+
+import argparse
+import sys
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
+
+try:
+    import nmrglue as ng
+except ImportError:
+    sys.exit("nmrglue is required: pip install nmrglue")
+
+from scipy import signal
+from scipy.ndimage import uniform_filter1d
+
+
+# ─── Phase correction ────────────────────────────────────────────────────────
+
+def _neg_entropy(spectrum_real):
+    """Objective function: negative entropy of the real part (minimise)."""
+    s = np.abs(spectrum_real)
+    s = s[s > 0]
+    return np.sum(s * np.log(s))
+
+
+def auto_phase(data, method="acme"):
+    """
+    Automatic phase correction using the ACME (entropy minimisation) algorithm.
+    Returns (phased_data, p0_deg, p1_deg).
+    """
+    from scipy.optimize import minimize
+
+    n = len(data)
+
+    def apply_phase(p):
+        p0, p1 = p
+        ph = np.exp(1j * (np.deg2rad(p0) + np.deg2rad(p1) * np.linspace(-0.5, 0.5, n)))
+        return (data * ph).real
+
+    def objective(p):
+        return _neg_entropy(apply_phase(p))
+
+    # Coarse search over p0 (p1 = 0)
+    best = None
+    for p0_guess in np.arange(0, 360, 45):
+        res = minimize(objective, [p0_guess, 0.0],
+                       method="Nelder-Mead",
+                       options={"xatol": 0.05, "fatol": 1e-6, "maxiter": 5000})
+        if best is None or res.fun < best.fun:
+            best = res
+
+    p0, p1 = best.x
+    phased = apply_phase([p0, p1])
+    return phased, p0, p1
+
+
+# ─── Baseline subtraction ─────────────────────────────────────────────────────
+
+def baseline_als(y, lam=1e7, p=0.01, n_iter=20):
+    """
+    Asymmetric Least Squares baseline estimation (Eilers & Boelens 2005).
+    lam  – smoothness (higher = smoother baseline)
+    p    – asymmetry (fraction of points treated as baseline)
+    """
+    from scipy.sparse import diags, csc_matrix
+    from scipy.sparse.linalg import spsolve
+
+    L = len(y)
+    D = np.diff(np.eye(L), 2)
+    D = csc_matrix(D)
+    H = lam * D.T @ D
+    w = np.ones(L)
+    for _ in range(n_iter):
+        W = diags(w, 0, format="csc")
+        Z = spsolve(W + H, w * y)
+        w = p * (y > Z) + (1 - p) * (y <= Z)
+    return Z
+
+
+def subtract_baseline(spectrum):
+    """Estimate and remove baseline using ALS."""
+    baseline = baseline_als(spectrum)
+    return spectrum - baseline, baseline
+
+
+# ─── Bruker reader ────────────────────────────────────────────────────────────
+
+def read_bruker(folder, proc_number=1):
+    """
+    Try to read processed (pdata) data first; fall back to FID + Fourier transform.
+    Returns (ppm_axis, spectrum_complex, dic).
+    """
+    pdata_path = os.path.join(folder, "pdata", str(proc_number))
+    if os.path.isdir(pdata_path):
+        try:
+            dic, data = ng.bruker.read_pdata(pdata_path)
+            udic = ng.bruker.guess_udic(dic, data)
+            uc = ng.fileiobase.uc_from_udic(udic)
+            ppm = uc.ppm_scale()
+            # pdata is already real; wrap in complex for uniform handling
+            spectrum = data.astype(complex)
+            return ppm, spectrum, dic, "pdata"
+        except Exception as e:
+            print(f"[warn] Could not read pdata ({e}); falling back to FID.")
+
+    # ── FID path ──
+    dic, fid = ng.bruker.read(folder)
+    # Remove digital filter / group delay
+    fid = ng.bruker.remove_digital_filter(dic, fid)
+    # Zero-fill to next power of 2 (at least 2× original)
+    si = max(2 ** int(np.ceil(np.log2(len(fid) * 2))), 32768)
+    fid = ng.proc_base.zf_size(fid, si)
+    # Apodisation (exponential window, lb=0.3 Hz)
+    sw = dic["acqus"]["SW_h"]
+    lb = 0.3
+    fid = ng.proc_base.em(fid, lb=lb / sw)
+    # FFT + fftshift
+    spectrum = np.fft.fftshift(np.fft.fft(fid))
+    # Build ppm axis
+    sf = dic["acqus"]["SFO1"]          # MHz
+    sw_ppm = dic["acqus"]["SW"]        # ppm
+    o1p = dic["acqus"]["O1"] / sf      # ppm
+    n = len(spectrum)
+    ppm = np.linspace(o1p + sw_ppm / 2, o1p - sw_ppm / 2, n)
+
+    return ppm, spectrum, dic, "fid"
+
+
+# ─── Main ─────────────────────────────────────────────────────────────────────
+
+def plot_spectrum(folder, do_phase=True, do_baseline=True,
+                 manual_p0=None, manual_p1=None,
+                 output=None, ppm_range=None, proc_number=1):
+
+    print(f"Reading: {folder}")
+    ppm, spectrum, dic, source = read_bruker(folder, proc_number)
+    print(f"  Source : {source}  |  Points : {len(ppm)}")
+
+    # ── Phase correction ──────────────────────────────────────────────────────
+    p0_applied = p1_applied = 0.0
+
+    if do_phase:
+        if manual_p0 is not None or manual_p1 is not None:
+            p0_applied = manual_p0 or 0.0
+            p1_applied = manual_p1 or 0.0
+            n = len(spectrum)
+            ph = np.exp(1j * (np.deg2rad(p0_applied) +
+                              np.deg2rad(p1_applied) * np.linspace(-0.5, 0.5, n)))
+            real_spec = (spectrum * ph).real
+            print(f"  Phase  : manual p0={p0_applied:.1f}°  p1={p1_applied:.1f}°")
+        else:
+            # Auto-phase on the complex spectrum
+            if np.iscomplexobj(spectrum):
+                real_spec, p0_applied, p1_applied = auto_phase(spectrum)
+            else:
+                real_spec = spectrum.real
+            print(f"  Phase  : auto   p0={p0_applied:.2f}°  p1={p1_applied:.2f}°")
+    else:
+        real_spec = spectrum.real if np.iscomplexobj(spectrum) else spectrum
+        print("  Phase  : skipped")
+
+    # Ensure correct sign (major peak should be positive)
+    if real_spec.max() < -real_spec.min():
+        real_spec = -real_spec
+
+    # ── Baseline subtraction ──────────────────────────────────────────────────
+    baseline = np.zeros_like(real_spec)
+    if do_baseline:
+        try:
+            real_spec_corr, baseline = subtract_baseline(real_spec)
+            print(f"  Baseline: ALS correction applied")
+        except Exception as e:
+            print(f"  Baseline: failed ({e}), skipping")
+            real_spec_corr = real_spec
+    else:
+        real_spec_corr = real_spec
+        print("  Baseline: skipped")
+
+    # ── Plot ──────────────────────────────────────────────────────────────────
+    fig, axes = plt.subplots(
+        2, 1, figsize=(12, 7),
+        gridspec_kw={"height_ratios": [4, 1], "hspace": 0.08}
+    )
+    ax_main, ax_base = axes
+
+    # Colour scheme
+    C_SPEC     = "#1a6faf"
+    C_BASELINE = "#e05c2a"
+    C_BG       = "#f8f9fa"
+
+    fig.patch.set_facecolor(C_BG)
+    for ax in axes:
+        ax.set_facecolor(C_BG)
+
+    # Main spectrum
+    ax_main.plot(ppm, real_spec_corr, color=C_SPEC, lw=0.8, label="Corrected spectrum")
+
+    # Baseline panel
+    ax_base.plot(ppm, baseline, color=C_BASELINE, lw=1.0, label="Estimated baseline")
+    ax_base.axhline(0, color="#999", lw=0.5, ls="--")
+
+    # ppm axis goes right → left (NMR convention)
+    for ax in axes:
+        ax.invert_xaxis()
+
+    if ppm_range is not None:
+        lo, hi = sorted(ppm_range)
+        ax_main.set_xlim(hi, lo)
+        ax_base.set_xlim(hi, lo)
+
+    # Labels & formatting
+    folder_name = os.path.basename(os.path.normpath(folder))
+    try:
+        nucleus = dic["acqus"].get("NUC1", "?")
+        sf_mhz  = dic["acqus"].get("SFO1", 0)
+        title   = f"{folder_name}  ·  {nucleus} @ {sf_mhz:.1f} MHz"
+    except Exception:
+        title = folder_name
+
+    phase_info = f"p0={p0_applied:.1f}°, p1={p1_applied:.1f}°" if do_phase else "no phase correction"
+    baseline_info = "ALS baseline" if do_baseline else "no baseline correction"
+
+    ax_main.set_title(title, fontsize=13, fontweight="bold", pad=8)
+    ax_main.set_ylabel("Intensity (a.u.)", fontsize=10)
+    ax_main.tick_params(labelbottom=False, bottom=False)
+    ax_main.yaxis.set_major_formatter(ticker.ScalarFormatter(useMathText=True))
+    ax_main.ticklabel_format(style="sci", axis="y", scilimits=(0, 0))
+    ax_main.legend(fontsize=8, loc="upper left",
+                   title=f"{phase_info}  |  {baseline_info}", title_fontsize=7)
+    ax_main.grid(axis="x", color="#ddd", lw=0.5)
+
+    ax_base.set_xlabel("Chemical shift (ppm)", fontsize=10)
+    ax_base.set_ylabel("Baseline", fontsize=9)
+    ax_base.legend(fontsize=8, loc="upper left")
+    ax_base.grid(axis="x", color="#ddd", lw=0.5)
+
+    plt.tight_layout()
+
+    if output:
+        plt.savefig(output, dpi=150, bbox_inches="tight")
+        print(f"  Saved  : {output}")
+    else:
+        plt.show()
+
+
+# ─── CLI ──────────────────────────────────────────────────────────────────────
+
+def pick_folder():
+    """Open a folder-picker dialog and return the selected path, or exit if cancelled."""
+    import tkinter as tk
+    from tkinter import filedialog, messagebox
+
+    root = tk.Tk()
+    root.withdraw()                          # hide the empty root window
+    root.attributes("-topmost", True)        # bring dialog to front
+
+    folder = filedialog.askdirectory(
+        title="Select Bruker experiment folder",
+        mustexist=True,
+    )
+    root.destroy()
+
+    if not folder:
+        sys.exit("No folder selected — exiting.")
+    return folder
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Plot Bruker NMR spectrum with auto phase + baseline correction."
+    )
+    parser.add_argument("folder", nargs="?", default=None,
+                        help="Path to Bruker experiment folder (omit to use folder picker)")
+    parser.add_argument("--no-phase",    action="store_true", help="Skip phase correction")
+    parser.add_argument("--no-baseline", action="store_true", help="Skip baseline subtraction")
+    parser.add_argument("--p0",    type=float, default=None, metavar="DEG",
+                        help="Manual zero-order phase (degrees)")
+    parser.add_argument("--p1",    type=float, default=None, metavar="DEG",
+                        help="Manual first-order phase (degrees)")
+    parser.add_argument("--output", type=str, default=None, metavar="FILE",
+                        help="Save plot to file (e.g. spectrum.png)")
+    parser.add_argument("--ppm-range", type=float, nargs=2, metavar=("MIN", "MAX"),
+                        default=None, help="Zoom to ppm window")
+    parser.add_argument("--proc-number", type=int, default=1,
+                        help="Processed data number under pdata/ (default: 1)")
+    args = parser.parse_known_args()[0]
+
+    # Use folder picker if no path was given on the command line
+    folder = args.folder if args.folder else pick_folder()
+
+    if not os.path.isdir(folder):
+        sys.exit(f"Error: '{folder}' is not a directory.")
+
+    plot_spectrum(
+        folder       = folder,
+        do_phase     = not args.no_phase,
+        do_baseline  = not args.no_baseline,
+        manual_p0    = args.p0,
+        manual_p1    = args.p1,
+        output       = args.output,
+        ppm_range    = args.ppm_range,
+        proc_number  = args.proc_number,
+    )
+
+
+if __name__ == "__main__":
+    main()
