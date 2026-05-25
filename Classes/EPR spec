@@ -1,0 +1,87 @@
+#%%
+import numpy as np
+import itertools
+import matplotlib.pyplot as plt
+
+# ----------------------------
+# Constants (typical EPR X-band)
+# ----------------------------
+g = 2.0027
+beta_e = 9.274e-24   # J/T (not needed explicitly if working in field units)
+h_nu = 9.5e9 * 6.626e-34  # X-band microwave (~9.5 GHz)
+
+# Convert to resonance field (simplified scaling)
+# B0 ≈ hν / (gβe)
+B0 = 3400  # mT typical X-band center field
+
+# ----------------------------
+# Hyperfine model for naphthalenide (simplified)
+# Two sets of equivalent protons:
+# (this is a coarse but chemically realistic approximation)
+# ----------------------------
+a_set1 = 0.55  # mT (larger coupling set)
+a_set2 = 0.15  # mT (weaker delocalized set)
+
+n1 = 4  # equivalent protons in set 1
+n2 = 4  # equivalent protons in set 2
+
+# ----------------------------
+# Generate nuclear spin states
+# ----------------------------
+def nuclear_states(n):
+    # each proton I = 1/2
+    spins = [-0.5, 0.5]
+    return list(itertools.product(spins, repeat=n))
+
+states1 = nuclear_states(n1)
+states2 = nuclear_states(n2)
+
+# ----------------------------
+# Compute stick spectrum positions
+# ----------------------------
+fields = []
+intensities = []
+
+for s1 in states1:
+    m1 = np.sum(s1)
+
+    for s2 in states2:
+        m2 = np.sum(s2)
+
+        # total hyperfine shift
+        shift = a_set1 * m1 + a_set2 * m2
+
+        B = B0 - shift
+
+        fields.append(B)
+
+        # degeneracy weight
+        intensities.append(1)
+
+fields = np.array(fields)
+intensities = np.array(intensities)
+
+# ----------------------------
+# Broaden sticks into spectrum
+# ----------------------------
+B_axis = np.linspace(B0 - 5, B0 + 5, 5000)
+spectrum = np.zeros_like(B_axis)
+
+linewidth = 0.08  # mT Gaussian width
+
+for B, I in zip(fields, intensities):
+    spectrum += I * np.exp(-(B_axis - B)**2 / (2 * linewidth**2))
+
+# Normalize
+spectrum /= np.max(spectrum)
+
+# ----------------------------
+# Plot
+# ----------------------------
+plt.figure(figsize=(8,4))
+plt.plot(B_axis, spectrum)
+plt.xlabel("Magnetic Field (mT)")
+plt.ylabel("Intensity (a.u.)")
+plt.title("Simulated EPR Spectrum: Naphthalenide (Simplified)")
+plt.gca().invert_xaxis()  # conventional EPR display
+plt.show()
